@@ -4,9 +4,10 @@ from tkinter import ttk, messagebox
 class CBTab(ttk.Frame):
     def __init__(self, parent, db_manager, central_bank, financial_orgs):
         super().__init__(parent)
-        self.db_manager = db_manager
-        self.central_bank = central_bank
-        self.financial_orgs = financial_orgs
+        self.db_manager = db_manager # Может быть None
+        # Сохраняем ссылки, но они могут быть None на момент инициализации
+        self.central_bank = central_bank # Может быть None
+        self.financial_orgs = financial_orgs # Может быть {}
 
         # --- Информация от ЦБ ---
         info_frame = ttk.LabelFrame(self, text="Информация от Центрального банка")
@@ -15,7 +16,12 @@ class CBTab(ttk.Frame):
         # Состояние системы
         self.system_state_text = tk.Text(info_frame, height=6, state=tk.DISABLED)
         self.system_state_text.pack(fill=tk.X, padx=5, pady=5)
-        self.update_system_state()
+        # Не вызываем update_system_state() сразу при инициализации
+        # self.update_system_state() # Закомментировано
+
+        # Кнопка обновления
+        self.refresh_btn = ttk.Button(info_frame, text="Обновить данные ЦБ", command=self.update_system_state)
+        self.refresh_btn.pack(pady=5)
 
         # --- Таблица запросов на эмиссию ---
         emission_frame = ttk.LabelFrame(self, text="Запросы на эмиссию от ФО")
@@ -50,6 +56,16 @@ class CBTab(ttk.Frame):
         emission_frame.grid_columnconfigure(0, weight=1)
 
     def update_system_state(self):
+        # Проверяем, инициализирован ли self.central_bank
+        if self.central_bank is None:
+            print("[WARN] Центральный банк не инициализирован. Невозможно обновить состояние.")
+            # Можно обновить текстовое поле с сообщением
+            self.system_state_text.config(state=tk.NORMAL)
+            self.system_state_text.delete(1.0, tk.END)
+            self.system_state_text.insert(tk.END, "Центральный банк не инициализирован.")
+            self.system_state_text.config(state=tk.DISABLED)
+            return
+
         state = self.central_bank.get_system_state()
         self.system_state_text.config(state=tk.NORMAL)
         self.system_state_text.delete(1.0, tk.END)

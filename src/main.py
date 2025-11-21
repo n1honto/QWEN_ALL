@@ -30,31 +30,10 @@ print(f"[MAIN] sys.path: {sys.path[:3]}...") # Показываем начало
 # Теперь можно импортировать модули из digital_ruble_simulation
 # Попробуем импортировать каждый модуль по отдельности для отладки
 try:
-    from digital_ruble_simulation.src.core import participants
-    print("[MAIN] Успешно импортирован participants")
+    from digital_ruble_simulation.src.core import participants, blockchain, consensus, transaction
+    print("[MAIN] Успешно импортированы core модули")
 except ImportError as e:
-    print(f"[ERROR] Не удалось импортировать participants: {e}")
-    sys.exit(1)
-
-try:
-    from digital_ruble_simulation.src.core import blockchain
-    print("[MAIN] Успешно импортирован blockchain")
-except ImportError as e:
-    print(f"[ERROR] Не удалось импортировать blockchain: {e}")
-    sys.exit(1)
-
-try:
-    from digital_ruble_simulation.src.core import consensus
-    print("[MAIN] Успешно импортирован consensus")
-except ImportError as e:
-    print(f"[ERROR] Не удалось импортировать consensus: {e}")
-    sys.exit(1)
-
-try:
-    from digital_ruble_simulation.src.core import transaction
-    print("[MAIN] Успешно импортирован transaction")
-except ImportError as e:
-    print(f"[ERROR] Не удалось импортировать transaction: {e}")
+    print(f"[ERROR] Не удалось импортировать core модули: {e}")
     sys.exit(1)
 
 try:
@@ -72,7 +51,6 @@ except ImportError as e:
     sys.exit(1)
 
 # --- Остальной код main.py ---
-# (Вставляем сюда весь остальной код, который был в main.py до этого места)
 
 # --- Глобальные переменные для симуляции ---
 SIMULATION_RUNNING = False
@@ -135,6 +113,7 @@ def initialize_simulation(num_users=1000, num_fos=5, scenario="low"):
     # --- Инициализация пользователей ---
     users = {}
     for i in range(num_users):
+        # ИСПРАВЛЕНО: используем participants.UserType
         user_type = random.choice([participants.UserType.PHYSICAL, participants.UserType.LEGAL])
         user_id = f"USER_{i+1:06d}"
         user_instance = participants.User(user_id, user_type, initial_balance=10000.0) # 10000 по умолчанию
@@ -145,7 +124,18 @@ def initialize_simulation(num_users=1000, num_fos=5, scenario="low"):
         financial_orgs[random_fo_id].add_user(user_instance)
 
         # Сохраняем данные пользователя в БД
-        db_manager.save_user(user_instance.get_wallet_info())
+        # ИСПРАВЛЕНО: передаём только поля, совместимые с моделью БД
+        user_db_data = {
+            'id': user_instance.id,
+            'type': user_instance.type,
+            'balance_non_cash': user_instance.balance_non_cash,
+            'balance_digital': user_instance.balance_digital,
+            'balance_offline': user_instance.balance_offline,
+            'status_digital_wallet': user_instance.status_digital_wallet,
+            'status_offline_wallet': user_instance.status_offline_wallet,
+            'offline_wallet_expiry': user_instance.offline_wallet_expiry,
+        }
+        db_manager.save_user(user_db_data)
     print(f"[MAIN] {num_users} пользователей инициализировано и распределены по ФО.")
 
     # --- Инициализация консенсуса ---
@@ -298,27 +288,39 @@ def main():
     print(f"[MAIN] Запуск имитационной модели цифрового рубля...")
 
     # --- Инициализация ---
-    # Пока что инициализируем с параметрами по умолчанию
+    # Сначала инициализируем с пустыми объектами или минимальными
     # В UI будет кнопка "Запустить симуляцию", которая вызовет initialize_simulation с нужными параметрами
-    db_manager, chain, cb, fos, users, replicas, network, expected_txs = initialize_simulation(num_users=1000, num_fos=5, scenario="low")
+    # и обновит объекты
+    # db_manager, chain, cb, fos, users, replicas, network, expected_txs = initialize_simulation(num_users=1000, num_fos=5, scenario="low")
+    # Пока что передаём заглушки
+    # Используем None для объектов, которые будут созданы позже
+    db_manager_instance = None
+    blockchain_instance = None
+    central_bank_instance = None
+    financial_orgs_instance = {}
+    users_instance = {}
+    replicas_instance = []
+    network_instance = None
+    expected_txs_instance = 0
 
     # --- Запуск UI ---
     # Передаём необходимые объекты в UI для взаимодействия
+    # Пока что передаём заглушки, они будут обновлены при запуске симуляции
     app = main_window.MainApplication(
-        db_manager=db_manager,
-        blockchain=chain,
-        central_bank=cb,
-        financial_orgs=fos,
-        users=users,
-        replicas=replicas,
-        network=network,
+        db_manager=db_manager_instance,
+        blockchain=blockchain_instance,
+        central_bank=central_bank_instance,
+        financial_orgs=financial_orgs_instance,
+        users=users_instance,
+        replicas=replicas_instance,
+        network=network_instance,
         simulation_controller={
             'run_loop': run_simulation_loop,
             'stop': stop_simulation,
             'get_status': get_simulation_status,
             'get_data': get_simulation_data,
             'initialize': initialize_simulation,
-            'expected_transactions': expected_txs, # Передаём ожидаемое количество транзакций
+            'expected_transactions': expected_txs_instance, # Передаём ожидаемое количество транзакций
             'scenarios': SCENARIOS, # Передаём словарь сценариев
             'run_scenario': run_scenario, # Передаём функцию запуска сценария
         }
@@ -330,4 +332,3 @@ if __name__ == "__main__":
     # Теперь, благодаря добавлению пути в sys.path, импорты должны работать
     print("main.py запущен напрямую. Попытка импорта и запуска...")
     main()
-

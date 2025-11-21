@@ -2,6 +2,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from . import models
 import os
+import json
+import datetime # Импортируем datetime для преобразования timestamp
 
 class DatabaseManager:
     """
@@ -40,20 +42,41 @@ class DatabaseManager:
     def save_user(self, user_data):
         """
         Сохраняет или обновляет данные пользователя в БД.
+        user_data должен содержать только поля, соответствующие модели models.User.
         """
         session = self.get_session()
         try:
-            # Проверяем, существует ли пользователь
+            # Проверяем, существует ли пользователь в БД
             db_user = session.query(models.User).filter(models.User.id == user_data['id']).first()
             if db_user:
-                # Обновляем поля
+                # Обновляем поля модели БД, соответствующие ключам в user_data
+                # Используем setattr для безопасного обновления
                 for key, value in user_data.items():
-                    if hasattr(db_user, key):
+                    # Проверяем, есть ли такое поле в модели SQLAlchemy
+                    if hasattr(models.User, key):
                         setattr(db_user, key, value)
+                    # else:
+                    #     print(f"[WARN] Поле {key} не найдено в модели User SQLAlchemy. Пропускаем.")
             else:
                 # Создаём нового пользователя
-                db_user = models.User(**user_data)
+                # Создаём экземпляр модели SQLAlchemy
+                # Поля, которые не существуют в модели, вызовут ошибку SQLAlchemy
+                # Поэтому user_data должен быть совместим с моделью User
+                # Проверим совместимость перед созданием
+                valid_fields = ['id', 'type', 'balance_non_cash', 'balance_digital', 'balance_offline', 'status_digital_wallet', 'status_offline_wallet', 'offline_wallet_expiry']
+                filtered_data = {k: v for k, v in user_data.items() if k in valid_fields}
+
+                # Обработка offline_wallet_expiry, если оно строковое
+                if 'offline_wallet_expiry' in filtered_data and isinstance(filtered_data['offline_wallet_expiry'], str):
+                    try:
+                        filtered_data['offline_wallet_expiry'] = datetime.datetime.fromisoformat(filtered_data['offline_wallet_expiry'])
+                    except ValueError:
+                        print(f"[ERROR] Невозможно преобразовать offline_wallet_expiry '{filtered_data['offline_wallet_expiry']}' в datetime. Устанавливаем в None.")
+                        filtered_data['offline_wallet_expiry'] = None
+
+                db_user = models.User(**filtered_data)
                 session.add(db_user)
+
             session.commit()
             print(f"[DB] Данные пользователя {user_data['id']} сохранены/обновлены.")
         except Exception as e:
@@ -68,21 +91,31 @@ class DatabaseManager:
         """
         session = self.get_session()
         try:
-            # Проверяем, существует ли транзакция
+            # Проверяем, существует ли транзакция в БД
             db_tx = session.query(models.Transaction).filter(models.Transaction.id == tx_data['id']).first()
             if db_tx:
-                # Обновляем поля, например, статус или хеш блока
+                # Обновляем поля модели БД, соответствующие ключам в tx_data
                 for key, value in tx_data.items():
-                    if hasattr(db_tx, key):
+                    if hasattr(models.Transaction, key):
                         setattr(db_tx, key, value)
+                    # else:
+                    #     print(f"[WARN] Поле {key} не найдено в модели Transaction SQLAlchemy. Пропускаем.")
             else:
                 # Создаём новую транзакцию
                 # Преобразуем timestamp из float в datetime, если нужно
-                if isinstance(tx_data.get('timestamp'), float):
-                    import datetime
-                    tx_data['timestamp'] = datetime.datetime.fromtimestamp(tx_data['timestamp'])
-                db_tx = models.Transaction(**tx_data)
+                # и если он присутствует в tx_data
+                tx_data_for_db = tx_data.copy()
+                if 'timestamp' in tx_data_for_db and isinstance(tx_data_for_db['timestamp'], float):
+                    tx_data_for_db['timestamp'] = datetime.datetime.fromtimestamp(tx_data_for_db['timestamp'])
+
+                # Убедимся, что все поля в tx_data_for_db существуют в модели Transaction
+                # SQLAlchemy сама проверит это, но мы можем отфильтровать заранее
+                # valid_fields = ['id', 'sender_id', 'recipient_id', 'amount', 'type', 'fo_id', 'timestamp', 'status', 'additional_data', 'block_hash']
+                # filtered_tx_data = {k: v for k, v in tx_data_for_db.items() if k in valid_fields}
+
+                db_tx = models.Transaction(**tx_data_for_db) # Используем оригинальные данные, SQLAlchemy проверит
                 session.add(db_tx)
+
             session.commit()
             print(f"[DB] Транзакция {tx_data['id']} сохранена.")
         except Exception as e:
@@ -97,30 +130,37 @@ class DatabaseManager:
         """
         session = self.get_session()
         try:
-            # Проверяем, существует ли блок
+            # Проверяем, существует ли блок в БД
             db_block = session.query(models.Block).filter(models.Block.hash == block_data['hash']).first()
             if db_block:
                 print(f"[WARN] Блок с хешем {block_data['hash']} уже существует в БД.")
                 return # Не сохраняем дубликат
+
             # Создаём новый блок
             # Преобразуем timestamp из float в datetime, если нужно
-            if isinstance(block_data.get('timestamp'), float):
-                import datetime
-                block_data['timestamp'] = datetime.datetime.fromtimestamp(block_data['timestamp'])
+            # и если он присутствует в block_data
+            block_data_for_db = block_data.copy()
+            if 'timestamp' in block_data_for_db and isinstance(block_data_for_db['timestamp'], float):
+                block_data_for_db['timestamp'] = datetime.datetime.fromtimestamp(block_data_for_db['timestamp'])
+
             # Преобразуем список транзакций в JSON строку
-            import json
-            tx_json = json.dumps([tx for tx in block_data.get('transactions', [])])
+            # и убедимся, что поле называется transactions_json в модели
+            tx_json = json.dumps(block_data_for_db.get('transactions', []), default=str) # default=str на случай, если транзакции - объекты
+            block_data_for_db['transactions_json'] = tx_json
+
+            # Убедимся, что используем правильные имена полей для модели Block
+            # index, hash, previous_hash, transactions_json, timestamp, nonce
             db_block = models.Block(
-                index=block_data['index'],
-                hash=block_data['hash'],
-                previous_hash=block_data['previous_hash'],
-                transactions_json=tx_json,
-                timestamp=block_data['timestamp'],
-                nonce=block_data['nonce']
+                index=block_data_for_db['index'],
+                hash=block_data_for_db['hash'],
+                previous_hash=block_data_for_db['previous_hash'],
+                transactions_json=block_data_for_db['transactions_json'], # Используем преобразованное поле
+                timestamp=block_data_for_db['timestamp'],
+                nonce=block_data_for_db['nonce']
             )
             session.add(db_block)
             session.commit()
-            print(f"[DB] Блок {block_data['index']} (hash {block_data['hash'][:8]}) сохранён.")
+            print(f"[DB] Блок {block_data_for_db['index']} (hash {block_data_for_db['hash'][:8]}) сохранён.")
         except Exception as e:
             session.rollback()
             print(f"[ERROR] Не удалось сохранить блок {block_data['index']}: {e}")
@@ -130,11 +170,13 @@ class DatabaseManager:
     def get_user_data(self, user_id):
         """
         Получает данные пользователя из БД по ID.
+        Возвращает словарь, совместимый с моделью User SQLAlchemy.
         """
         session = self.get_session()
         try:
             db_user = session.query(models.User).filter(models.User.id == user_id).first()
             if db_user:
+                # Возвращаем словарь с атрибутами модели
                 return {
                     'id': db_user.id,
                     'type': db_user.type,
@@ -154,6 +196,7 @@ class DatabaseManager:
     def get_all_users_data(self):
         """
         Получает данные всех пользователей из БД.
+        Возвращает список словарей, совместимых с моделью User SQLAlchemy.
         """
         session = self.get_session()
         try:
@@ -199,7 +242,6 @@ class DatabaseManager:
         session = self.get_session()
         try:
             db_blocks = session.query(models.Block).all()
-            import json
             return [{
                     'index': b.index,
                     'hash': b.hash,

@@ -5,13 +5,13 @@ import threading
 class ControlTab(ttk.Frame):
     def __init__(self, parent, db_manager, blockchain, central_bank, financial_orgs, users, replicas, network, simulation_controller):
         super().__init__(parent)
-        self.db_manager = db_manager
-        self.blockchain = blockchain
-        self.central_bank = central_bank
-        self.financial_orgs = financial_orgs
-        self.users = users
-        self.replicas = replicas
-        self.network = network
+        self.db_manager = db_manager # Может быть None
+        self.blockchain = blockchain # Может быть None
+        self.central_bank = central_bank # Может быть None
+        self.financial_orgs = financial_orgs # Может быть {}
+        self.users = users # Может быть {}
+        self.replicas = replicas # Может быть []
+        self.network = network # Может быть None
         self.simulation_controller = simulation_controller
 
         # --- Элементы управления ---
@@ -27,8 +27,8 @@ class ControlTab(ttk.Frame):
         self.user_type_var = tk.StringVar(value="physical")
         ttk.Combobox(user_frame, textvariable=self.user_type_var, values=["physical", "legal"], state="readonly", width=15).grid(row=0, column=3, sticky=tk.W, padx=5, pady=2)
 
-        self.create_users_btn = ttk.Button(user_frame, text="Создать пользователей", command=self.create_users)
-        self.create_users_btn.grid(row=0, column=4, sticky=tk.W, padx=10, pady=2)
+        # self.create_users_btn = ttk.Button(user_frame, text="Создать пользователей", command=self.create_users) # Не нужно, создаются при симуляции
+        # self.create_users_btn.grid(row=0, column=4, sticky=tk.W, padx=10, pady=2)
 
         # Секция создания ФО
         fo_frame = ttk.LabelFrame(self, text="Создание Финансовых Организаций")
@@ -38,8 +38,8 @@ class ControlTab(ttk.Frame):
         self.fo_count_var = tk.StringVar(value="5")
         ttk.Entry(fo_frame, textvariable=self.fo_count_var, width=10).grid(row=0, column=1, sticky=tk.W, padx=5, pady=2)
 
-        self.create_fos_btn = ttk.Button(fo_frame, text="Создать ФО", command=self.create_fos)
-        self.create_fos_btn.grid(row=0, column=2, sticky=tk.W, padx=10, pady=2)
+        # self.create_fos_btn = ttk.Button(fo_frame, text="Создать ФО", command=self.create_fos) # Не нужно, создаются при симуляции
+        # self.create_fos_btn.grid(row=0, column=2, sticky=tk.W, padx=10, pady=2)
 
         # Секция сценариев и запуска
         scenario_frame = ttk.LabelFrame(self, text="Сценарии и запуск")
@@ -55,6 +55,10 @@ class ControlTab(ttk.Frame):
         self.stop_simulation_btn = ttk.Button(scenario_frame, text="Остановить симуляцию", command=self.stop_simulation, state=tk.DISABLED)
         self.stop_simulation_btn.grid(row=0, column=3, sticky=tk.W, padx=5, pady=2)
 
+        # Кнопка запуска сценария
+        self.run_scenario_btn = ttk.Button(scenario_frame, text="Запустить сценарий", command=self.run_selected_scenario)
+        self.run_scenario_btn.grid(row=0, column=4, sticky=tk.W, padx=5, pady=2)
+
         # Секция статуса
         status_frame = ttk.LabelFrame(self, text="Статус симуляции")
         status_frame.pack(fill=tk.X, padx=5, pady=5)
@@ -67,32 +71,12 @@ class ControlTab(ttk.Frame):
         self.update_status_btn.pack(side=tk.RIGHT, padx=5, pady=5)
 
     def create_users(self):
-        try:
-            count = int(self.user_count_var.get())
-            user_type_str = self.user_type_var.get()
-            user_type = next(t for t in self.users[next(iter(self.users))].__class__.__dict__.values() if isinstance(t, self.users[next(iter(self.users))].__class__.__dict__.values().__class__) and t.value == user_type_str)
-        except (ValueError, StopIteration):
-            messagebox.showerror("Ошибка", "Некорректное количество пользователей или тип.")
-            return
-
-        # В реальной симуляции это делалось бы в цикле с обновлением БД
-        # Здесь мы просто обновим глобальные переменные, которые будут использоваться при инициализации
-        # или создадим пользователей в текущей сессии, если симуляция не запущена.
-        # Лучше всего интегрировать это в процесс инициализации симуляции.
-        # Для симуляции в реальном времени добавление пользователей сложнее.
-        # Пока что покажем сообщение.
-        messagebox.showinfo("Информация", f"Запланировано создание {count} пользователей типа {user_type_str}. "
-                                          f"Изменения вступят в силу при следующей инициализации симуляции.")
+        # Заглушка, функция не используется при текущей логике
+        messagebox.showinfo("Информация", "Создание пользователей происходит при запуске симуляции.")
 
     def create_fos(self):
-        try:
-            count = int(self.fo_count_var.get())
-        except ValueError:
-            messagebox.showerror("Ошибка", "Некорректное количество ФО.")
-            return
-
-        messagebox.showinfo("Информация", f"Запланировано создание {count} ФО. "
-                                          f"Изменения вступят в силу при следующей инициализации симуляции.")
+        # Заглушка, функция не используется при текущей логике
+        messagebox.showinfo("Информация", "Создание ФО происходит при запуске симуляции.")
 
     def run_simulation(self):
         scenario = self.scenario_var.get()
@@ -111,17 +95,23 @@ class ControlTab(ttk.Frame):
                 return
 
             # Перезапуск симуляции
-            # В реальности, перезапуск означает остановку текущей, инициализацию новой, и запуск.
-            # Для простоты, просто вызовем инициализацию с новыми параметрами в controller
-            # и передадим обновлённые объекты обратно в main_window
-            # Это требует более сложной логики в main.py и controller.
-            # Пока что просто вызовем run_loop с существующими объектами.
-            # self.db_manager, self.chain, self.cb, self.fos, self.users, self.replicas, self.network = \
-            #     self.simulation_controller['initialize'](num_users, num_fos, scenario)
+            # Вызываем функцию инициализации из controller
+            # Она возвращает все необходимые объекты
+            db_manager, chain, cb, fos, users, replicas, network, expected_txs = \
+                self.simulation_controller['initialize'](num_users, num_fos, scenario)
+
+            # Обновляем объекты в главном окне
+            # self.master - это MainApplication
+            self.master.update_simulation_objects(db_manager, chain, cb, fos, users, replicas, network)
 
             # Запуск цикла симуляции
             duration = 3600 # 1 час, как в сценариях
-            self.simulation_controller['run_loop'](self.replicas, duration)
+            self.simulation_controller['run_loop'](replicas, duration, expected_txs, fos, users) # Передаём все 5 аргументов
+
+            # После завершения симуляции обновим данные в UI
+            # ПЕРЕМЕЩЕНО: теперь вызывается внутри run_loop или по таймеру
+            # self.master.update_all_tabs_data()
+
 
         # Запускаем симуляцию в отдельном потоке, чтобы не блокировать UI
         sim_thread = threading.Thread(target=_run)
@@ -131,6 +121,16 @@ class ControlTab(ttk.Frame):
         self.run_simulation_btn.config(state=tk.DISABLED)
         self.stop_simulation_btn.config(state=tk.NORMAL)
         self.update_status()
+
+    def run_selected_scenario(self):
+        scenario = self.scenario_var.get()
+        print(f"[TAB_CONTROL] Запуск сценария {scenario} через кнопку.")
+        # Запускаем сценарий в отдельном потоке
+        def _run():
+            self.simulation_controller['run_scenario'](scenario)
+        sim_thread = threading.Thread(target=_run)
+        sim_thread.daemon = True
+        sim_thread.start()
 
     def stop_simulation(self):
         self.simulation_controller['stop']()
