@@ -4,7 +4,7 @@ from tkinter import ttk
 class UserDataTab(ttk.Frame):
     def __init__(self, parent, db_manager):
         super().__init__(parent)
-        self.db_manager = db_manager
+        self.db_manager = db_manager # Может быть None
 
         # --- Таблица данных пользователей ---
         tree_frame = ttk.Frame(self)
@@ -55,6 +55,14 @@ class UserDataTab(ttk.Frame):
         self.refresh_btn.pack(pady=5)
 
     def update_table(self):
+        # Проверяем, инициализирован ли self.db_manager
+        if self.db_manager is None:
+            print("[WARN] tab_user_data: db_manager не инициализирован. Невозможно обновить таблицу.")
+            # Очищаем таблицу, если нет данных
+            for item in self.user_tree.get_children():
+                self.user_tree.delete(item)
+            return
+
         # Очищаем таблицу
         for item in self.user_tree.get_children():
             self.user_tree.delete(item)
@@ -63,6 +71,7 @@ class UserDataTab(ttk.Frame):
         users_data = self.db_manager.get_all_users_data()
 
         # Заполняем таблицу
+        # ИСПРАВЛЕНО: используем 'users_data' вместо 'users_'
         for user in users_data:
             self.user_tree.insert("", "end", values=(
                 user['id'],

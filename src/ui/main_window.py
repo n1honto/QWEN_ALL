@@ -28,6 +28,7 @@ class MainApplication(tk.Tk):
 
         # --- Создание вкладок ---
         # 1. Управление
+        # ПЕРЕДАЁМ self (MainApplication) в ControlTab
         self.tab_control_frame = tab_control.ControlTab(
             self.notebook,
             self.db_manager, # Может быть None
@@ -37,7 +38,8 @@ class MainApplication(tk.Tk):
             self.users, # Может быть None
             self.replicas, # Может быть None
             self.network, # Может быть None
-            self.simulation_controller
+            self.simulation_controller,
+            self # Передаём экземпляр MainApplication
         )
         self.notebook.add(self.tab_control_frame, text="Управление")
 
@@ -160,6 +162,7 @@ class MainApplication(tk.Tk):
         """
         Обновляет внутренние объекты после инициализации симуляции.
         """
+        # Сначала обновляем свои атрибуты
         self.db_manager = db_manager
         self.blockchain = blockchain
         self.central_bank = central_bank
@@ -197,7 +200,7 @@ class MainApplication(tk.Tk):
             self.tab_cb_frame.financial_orgs = financial_orgs
 
         if hasattr(self, 'tab_user_data_frame'):
-            self.tab_user_data_frame.db_manager = db_manager
+            self.tab_user_data_frame.db_manager = db_manager # Обновляем ссылку в вкладке
 
         if hasattr(self, 'tab_tx_data_frame'):
             self.tab_tx_data_frame.db_manager = db_manager
@@ -218,4 +221,8 @@ class MainApplication(tk.Tk):
         if hasattr(self, 'tab_metrics_frame'):
             self.tab_metrics_frame.blockchain = blockchain
             self.tab_metrics_frame.db_manager = db_manager
+
+        # После обновления всех объектов, обновляем данные на вкладках
+        # Проверим, инициализированы ли объекты перед обновлением
+        self.update_all_tabs_data() # Вызываем обновление после обновления объектов
 

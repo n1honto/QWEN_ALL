@@ -116,7 +116,7 @@ def initialize_simulation(num_users=1000, num_fos=5, scenario="low"):
         # ИСПРАВЛЕНО: используем participants.UserType
         user_type = random.choice([participants.UserType.PHYSICAL, participants.UserType.LEGAL])
         user_id = f"USER_{i+1:06d}"
-        user_instance = participants.User(user_id, user_type, initial_balance=10000.0) # 10000 по умолчанию
+        user_instance = participants.User(user_id, user_type, initial_balance=10000.0) # 10000 по умолчанию - ПРАВИЛЬНО
         users[user_id] = user_instance
 
         # Регистрируем пользователей в случайной ФО
@@ -124,18 +124,14 @@ def initialize_simulation(num_users=1000, num_fos=5, scenario="low"):
         financial_orgs[random_fo_id].add_user(user_instance)
 
         # Сохраняем данные пользователя в БД
-        # ИСПРАВЛЕНО: передаём только поля, совместимые с моделью БД
-        user_db_data = {
-            'id': user_instance.id,
-            'type': user_instance.type,
-            'balance_non_cash': user_instance.balance_non_cash,
-            'balance_digital': user_instance.balance_digital,
-            'balance_offline': user_instance.balance_offline,
-            'status_digital_wallet': user_instance.status_digital_wallet,
-            'status_offline_wallet': user_instance.status_offline_wallet,
-            'offline_wallet_expiry': user_instance.offline_wallet_expiry,
-        }
-        db_manager.save_user(user_db_data)
+        # ИСПРАВЛЕНО: передаём только поля, совместимые с моделью БД, используя get_wallet_info
+        user_db_data = user_instance.get_wallet_info() # Получаем текущее состояние
+        # Убираем поля, которые не нужны для создания/обновления в БД, но есть в get_wallet_info
+        # offline_wallet_activation_time и offline_wallet_deactivation_time - производные, не обязательны для БД
+        # Но в модели User SQLAlchemy они есть (offline_wallet_expiry), так что оставим их
+        # filtered_db_data = {k: v for k, v in user_db_data.items() if k in ['id', 'type', 'balance_non_cash', 'balance_digital', 'balance_offline', 'status_digital_wallet', 'status_offline_wallet', 'offline_wallet_expiry']}
+        # На самом деле, database_manager.save_user фильтрует, так что можно передать весь словарь
+        db_manager.save_user(user_db_data) # Передаём словарь из get_wallet_info
     print(f"[MAIN] {num_users} пользователей инициализировано и распределены по ФО.")
 
     # --- Инициализация консенсуса ---

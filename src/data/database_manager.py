@@ -63,16 +63,28 @@ class DatabaseManager:
                 # Поля, которые не существуют в модели, вызовут ошибку SQLAlchemy
                 # Поэтому user_data должен быть совместим с моделью User
                 # Проверим совместимость перед созданием
-                valid_fields = ['id', 'type', 'balance_non_cash', 'balance_digital', 'balance_offline', 'status_digital_wallet', 'status_offline_wallet', 'offline_wallet_expiry']
+                # ИСПРАВЛЕНО: используем список полей из модели
+                # valid_fields = ['id', 'type', 'balance_non_cash', 'balance_digital', 'balance_offline', 'status_digital_wallet', 'status_offline_wallet', 'offline_wallet_expiry']
+                # filtered_data = {k: v for k, v in user_data.items() if k in valid_fields}
+
+                # Альтернатива: просто передать весь user_data и позволить SQLAlchemy обработать ошибки
+                # Но лучше отфильтровать, чтобы избежать проблем
+                # Используем атрибуты самой модели для получения валидных полей
+                from sqlalchemy import inspect
+                mapper = inspect(models.User)
+                valid_fields = [column.key for column in mapper.columns]
                 filtered_data = {k: v for k, v in user_data.items() if k in valid_fields}
 
-                # Обработка offline_wallet_expiry, если оно строковое
+                # Обработка offline_wallet_expiry, если оно строковое (возвращается из time.ctime)
+                # get_wallet_info возвращает datetime объекты для expiry, так что это не должно быть проблемой
+                # Но на всякий случай, если придет строка:
                 if 'offline_wallet_expiry' in filtered_data and isinstance(filtered_data['offline_wallet_expiry'], str):
                     try:
                         filtered_data['offline_wallet_expiry'] = datetime.datetime.fromisoformat(filtered_data['offline_wallet_expiry'])
                     except ValueError:
                         print(f"[ERROR] Невозможно преобразовать offline_wallet_expiry '{filtered_data['offline_wallet_expiry']}' в datetime. Устанавливаем в None.")
                         filtered_data['offline_wallet_expiry'] = None
+                # Если это объект datetime или None, оставляем как есть
 
                 db_user = models.User(**filtered_data)
                 session.add(db_user)

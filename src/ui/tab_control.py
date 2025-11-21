@@ -3,8 +3,11 @@ from tkinter import ttk, messagebox
 import threading
 
 class ControlTab(ttk.Frame):
-    def __init__(self, parent, db_manager, blockchain, central_bank, financial_orgs, users, replicas, network, simulation_controller):
+    def __init__(self, parent, db_manager, blockchain, central_bank, financial_orgs, users, replicas, network, simulation_controller, main_app_instance):
         super().__init__(parent)
+        # Сохраняем ссылку на MainApplication
+        self.main_app_instance = main_app_instance
+
         self.db_manager = db_manager # Может быть None
         self.blockchain = blockchain # Может быть None
         self.central_bank = central_bank # Может быть None
@@ -100,9 +103,9 @@ class ControlTab(ttk.Frame):
             db_manager, chain, cb, fos, users, replicas, network, expected_txs = \
                 self.simulation_controller['initialize'](num_users, num_fos, scenario)
 
-            # Обновляем объекты в главном окне
-            # self.master - это MainApplication
-            self.master.update_simulation_objects(db_manager, chain, cb, fos, users, replicas, network)
+            # Обновляем объекты в главном окне ЧЕРЕЗ ССЫЛКУ НА MainApplication
+            # self.main_app_instance - это MainApplication
+            self.main_app_instance.update_simulation_objects(db_manager, chain, cb, fos, users, replicas, network)
 
             # Запуск цикла симуляции
             duration = 3600 # 1 час, как в сценариях
@@ -110,7 +113,7 @@ class ControlTab(ttk.Frame):
 
             # После завершения симуляции обновим данные в UI
             # ПЕРЕМЕЩЕНО: теперь вызывается внутри run_loop или по таймеру
-            # self.master.update_all_tabs_data()
+            # self.main_app_instance.update_all_tabs_data() # Лучше вызывать после каждого блока или по таймеру в run_loop
 
 
         # Запускаем симуляцию в отдельном потоке, чтобы не блокировать UI

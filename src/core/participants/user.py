@@ -1,9 +1,9 @@
 import hashlib
 import time
 from enum import Enum
-# Исправленный импорт utils из пакета core
-from .. import utils # Импортируем пакет core.utils
-# from . import utils # НЕПРАВИЛЬНО: ищет utils в participants
+# Исправленный импорт utils: используем абсолютный путь
+# from .. import utils # Потенциальная проблема с относительным импортом из participants
+from digital_ruble_simulation.src.core import utils # Абсолютный импорт utils
 
 class UserType(Enum):
     PHYSICAL = "physical"
@@ -29,7 +29,7 @@ class User:
         self.offline_wallet_active = False
 
         # Балансы
-        self.balance_non_cash = initial_balance  # Баланс безналичного кошелька
+        self.balance_non_cash = initial_balance  # Баланс безналичного кошелька - ИНИЦИАЛИЗАЦИЯ
         self.balance_digital = 0.0               # Баланс цифрового кошелька
         self.balance_offline = 0.0               # Баланс офлайн-кошелька
 
@@ -102,7 +102,7 @@ class User:
               f"Баланс цифрового: {self.balance_digital}, Баланс офлайн: {self.balance_offline}")
         return True
 
-    def create_offline_transaction(self, recipient_id, amount):
+    def create_offline_transaction(self, amount, recipient_id): # Поменяли порядок аргументов для соответствия вызову в tab_user.py
         """
         Создаёт офлайн-транзакцию.
         Возвращает словарь с данными транзакции или None в случае ошибки.
@@ -144,14 +144,15 @@ class User:
 
     def get_wallet_info(self):
         """Возвращает информацию о кошельках пользователя."""
+        # Возвращаем текущие значения атрибутов объекта
         return {
             'id': self.id,
             'type': self.type,
-            'balance_non_cash': self.balance_non_cash,
+            'balance_non_cash': self.balance_non_cash, # Текущий баланс
             'status_digital_wallet': self.status_digital_wallet,
             'status_offline_wallet': self.status_offline_wallet,
-            'balance_digital': self.balance_digital,
-            'balance_offline': self.balance_offline,
+            'balance_digital': self.balance_digital, # Текущий баланс
+            'balance_offline': self.balance_offline, # Текущий баланс
             'offline_wallet_activation_time': time.ctime(self.offline_wallet_expiry - (14 * 24 * 60 * 60)) if self.offline_wallet_expiry else None,
             'offline_wallet_deactivation_time': time.ctime(self.offline_wallet_expiry) if self.offline_wallet_expiry else None,
         }

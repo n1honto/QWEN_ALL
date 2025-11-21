@@ -8,4 +8,4 @@ from .central_bank import CentralBank
 from .financial_org import FinancialOrg
 
 # Опционально: можно объявить __all__, чтобы указать, что экспортируется
-__all__ = ['User', 'UserType', 'CentralBank', 'FinancialOrg'] # Добавляем UserType
+__all__ = ['User', 'UserType', 'CentralBank', 'FinancialOrg']
