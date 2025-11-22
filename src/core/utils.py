@@ -1,3 +1,4 @@
+# digital_ruble_simulation/src/core/utils.py
 import hashlib
 import json
 

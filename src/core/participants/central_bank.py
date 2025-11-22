@@ -1,7 +1,8 @@
 import hashlib
 import time
 # from . import utils # НЕПРАВИЛЬНО: ищет utils в participants
-from .. import utils # Импортируем пакет core.utils
+# from digital_ruble_simulation.src.core import utils # Импортируем пакет core.utils
+from .. import utils # Относительный импорт utils из core
 
 class CentralBank:
     """

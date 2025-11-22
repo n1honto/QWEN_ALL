@@ -3,7 +3,7 @@
 в системе цифрового рубля: Центральный банк, Финансовые Организации, Пользователи.
 """
 # Явно импортируем классы, чтобы они были доступны как participants.CentralBank и т.д.
-from .user import User, UserType # Импортируем также UserType
+from .user import User, UserType
 from .central_bank import CentralBank
 from .financial_org import FinancialOrg
 

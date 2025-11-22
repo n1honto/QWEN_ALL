@@ -129,45 +129,46 @@ class Blockchain:
         # Если все транзакции валидны, возвращаем True
         return True
 
-    def add_block(self, new_block):
-        """
-        Добавляет новый блок в цепочку после валидации.
-        """
-        new_block.previous_hash = self.get_latest_block().hash
-        # Майнинг должен быть выполнен перед вызовом add_block
-        # new_block.mine_block(self.difficulty)
-        new_block.hash = new_block.calculate_hash()
+        def add_block(self, new_block):
+            """
+            Добавляет новый блок в цепочку после валидации.
+            """
+            new_block.previous_hash = self.get_latest_block().hash
+            # new_block.mine_block(self.difficulty) # Вызовите это перед add_block, если хотите майнить здесь
+            new_block.hash = new_block.calculate_hash()
 
-        # Проверяем целостность цепи
-        if new_block.previous_hash != self.get_latest_block().hash:
-             print(f"[ERROR] previous_hash блока {new_block.index} не совпадает с хешем последнего блока цепи.")
-             return False
+            # Проверяем целостность цепи
+            if new_block.previous_hash != self.get_latest_block().hash:
+                print(f"[ERROR] previous_hash блока {new_block.index} не совпадает с хешем последнего блока цепи.")
+                return False
 
-        # Проверяем вычисленный хеш
-        if new_block.hash != new_block.calculate_hash():
-            print(f"[ERROR] Вычисленный хеш блока {new_block.index} не совпадает с сохранённым.")
-            return False
+            # Проверяем вычисленный хеш
+            if new_block.hash != new_block.calculate_hash():
+                print(f"[ERROR] Вычисленный хеш блока {new_block.index} не совпадает с сохранённым.")
+                return False
 
-        # Проверяем транзакции в блоке
-        if not self.validate_block_transactions(new_block):
-            print(f"[ERROR] Транзакции в блоке {new_block.index} недействительны.")
-            return False
+            # Проверяем транзакции в блоке
+            if not self.validate_block_transactions(new_block):
+                print(f"[ERROR] Транзакции в блоке {new_block.index} недействительны.")
+                return False
 
-        # Если все проверки пройдены, добавляем блок
-        self.chain.append(new_block)
-        # Применяем транзакции к глобальному состоянию
-        for tx in new_block.transactions:
-            sender_id = tx.sender_id
-            recipient_id = tx.recipient_id
-            amount = tx.amount
+            # Если все проверки пройдены, добавляем блок
+            self.chain.append(new_block)
+            # Применяем транзакции к глобальному состоянию
+            for tx in new_block.transactions:
+                sender_id = tx.sender_id
+                recipient_id = tx.recipient_id
+                amount = tx.amount
 
-            self.state[sender_id] = self.state.get(sender_id, 0) - amount
-            self.state[recipient_id] = self.state.get(recipient_id, 0) + amount
-            # Обновляем статус транзакции
-            tx.status = 'CONFIRMED'
+                # Обновляем состояние балансов (псевдокод, зависит от реализации)
+                # self.state[sender_id] = self.state.get(sender_id, 0) - amount
+                # self.state[recipient_id] = self.state.get(recipient_id, 0) + amount
+                # Обновляем статус транзакции
+                tx.status = 'CONFIRMED'
 
-        print(f"[INFO] Блок {new_block.index} успешно добавлен в цепочку. Hash: {new_block.hash}")
-        return True
+            print(f"[INFO] Блок {new_block.index} успешно добавлен в цепочку. Hash: {new_block.hash}")
+            return True
+
 
     def is_chain_valid(self):
         """

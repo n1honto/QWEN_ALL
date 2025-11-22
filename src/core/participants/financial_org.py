@@ -1,15 +1,14 @@
-import hashlib
 import time
-# from . import utils # НЕПРАВИЛЬНО: ищет utils в participants
-from .. import utils # Импортируем пакет core.utils
+from .. import utils # Относительный импорт utils из core
 
 class FinancialOrg:
     """
     Класс, представляющий Финансовую Организацию (Кредитную Организацию).
     """
-    def __init__(self, fo_id, central_bank_instance):
+    def __init__(self, fo_id, central_bank_instance, db_manager): # Добавлен аргумент db_manager
         self.id = fo_id
         self.cb = central_bank_instance  # Ссылка на экземпляр ЦБ
+        self.db_manager = db_manager # Сохраняем ссылку на db_manager
         self.users = {}  # Словарь {user_id: User_instance}
         self.transaction_pool = [] # Пул неподтверждённых транзакций
         self.transaction_log = [] # Локальный лог транзакций, прошедших через эту ФО
@@ -25,6 +24,9 @@ class FinancialOrg:
         if user_instance.id not in self.users:
             self.users[user_instance.id] = user_instance
             print(f"[INFO] Пользователь {user_instance.id} добавлен в ФО {self.id}.")
+            # Сохраняем пользователя в БД при добавлении
+            user_db_data = user_instance.get_wallet_info()
+            self.db_manager.save_user(user_db_data)
             return True
         else:
             print(f"[WARN] Пользователь {user_instance.id} уже обслуживается ФО {self.id}.")
@@ -59,12 +61,15 @@ class FinancialOrg:
             print(f"[ERROR] Недостаточно средств на цифровом кошельке отправителя {sender_id}.")
             return False
 
-        # Создаём транзакцию
+        # --- ИСПРАВЛЕНИЕ: Генерируем ID для транзакции ---
+        # Используем utils.calculate_hash для генерации уникального ID
+        # ИСПРАВЛЕНО: убран .encode() из аргумента calculate_hash
+        tx_id = utils.calculate_hash(f"{sender_id}{recipient_id}{amount}{time.time()}{tx_type}")
         tx_data = {
-            'id': utils.calculate_hash(f"{sender_id}{recipient_id}{amount}{time.time()}".encode()), # Используем utils
+            'id': tx_id, # --- ДОБАВЛЕНО: ID транзакции ---
             'sender_id': sender_id,
             'recipient_id': recipient_id,
-            'amount': amount,
+            'amount': int(amount), # Убедимся, что сумма целая
             'type': tx_type,
             'timestamp': time.time(),
             'status': 'PENDING',
@@ -72,12 +77,15 @@ class FinancialOrg:
         }
 
         # В реальной системе тут была бы подпись отправителя
-        print(f"[INFO] Создана транзакция {tx_data['id']} от {sender_id} к {recipient_id} через ФО {self.id}.")
+        print(f"[INFO] Создана транзакция {tx_id} от {sender_id} к {recipient_id} через ФО {self.id}.")
+
+        # Сохраняем транзакцию в БД
+        self.db_manager.save_transaction(tx_data) # --- ИСПРАВЛЕНИЕ: Вызов метода save_transaction ---
 
         # Добавляем в пул
         self.transaction_pool.append(tx_data)
-        print(f"[INFO] Транзакция {tx_data['id']} добавлена в пул ФО {self.id}.")
-        return tx_data['id']
+        print(f"[INFO] Транзакция {tx_id} добавлена в пул ФО {self.id}.")
+        return tx_id # Возвращаем ID
 
     def get_transaction_pool(self):
         """

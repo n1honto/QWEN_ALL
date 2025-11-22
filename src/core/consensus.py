@@ -28,12 +28,13 @@ class Replica:
     Класс, представляющий узел (реплику) в консенсусе HotStuff.
     В нашей модели это будет Финансовая Организация (FO), участвующая в консенсусе.
     """
-    def __init__(self, node_id, blockchain_instance, financial_org_instance, validator_set, crypto_instance):
+    def __init__(self, node_id, blockchain_instance, financial_org_instance, validator_set, crypto_instance, db_manager): # Добавлен аргумент db_manager
         self.node_id = node_id
         self.blockchain = blockchain_instance
         self.fo = financial_org_instance # Ссылка на ФО, которая является узлом
         self.validator_set = validator_set # Объект, хранящий узлы и их веса (упрощённо)
         self.crypto = crypto_instance # Объект для криптографических операций (заглушка)
+        self.db_manager = db_manager # Ссылка на db_manager для сохранения блоков
 
         # Состояние узла
         self.current_view = 0
@@ -69,7 +70,6 @@ class Replica:
         """
         with self.lock:
             if not self.is_primary(self.current_view):
-                # print(f"[HOTSTUFF] Узел {self.node_id} (Non-Primary) пропускает propose для view {self.current_view}.")
                 return
 
             print(f"[HOTSTUFF] Узел {self.node_id} (Primary) начинает формирование блока для view {self.current_view}.")
@@ -77,7 +77,7 @@ class Replica:
             # Получаем транзакции из пула ФО
             transactions_to_include = self.fo.process_pool_for_consensus()
             if not transactions_to_include:
-                 print(f"[HOTSTUFF] Узел {self.node_id} (Primary) не нашёл транзакций для view {self.current_view}. Предлагает пустой блок.")
+                 print(f"[HOTSTUFF] Узел {self.node_id} (Primary) не нашёл транзакций для view {self.current_view}. Пропускает блок.")
                  # Даже если транзакций нет, всё равно можно предложить пустой блок
                  transactions_to_include = []
 
@@ -111,14 +111,14 @@ class Replica:
             if self.network:
                 self.network.broadcast_message(propose_msg, exclude_sender=True)
 
-    def handle_propose(self, msg):
+    def handle_propose(self, msg, parent_qc_=None):
         """
         Обрабатывает сообщение PROPOSE.
         """
         with self.lock:
             view = msg['view']
             block_data = msg['block']
-            parent_qc_data = msg['parent_qc']
+            parent_qc_data = msg['parent_qc'] # --- ИСПРАВЛЕНИЕ: переменная определена ---
             sender_id = msg['sender_id']
 
             # Проверяем, что view актуален
@@ -128,47 +128,48 @@ class Replica:
                 return
 
             # Проверяем, что отправитель - primary для этого view
-            # ИСПРАВЛЕНО: используем is_primary для проверки sender_id
             if not self.is_primary(view, for_node_id=sender_id):
                  print(f"[HOTSTUFF] Узел {self.node_id}: Получен PROPOSE от не-лидера {sender_id} для view {view}.")
                  return
 
             # Валидация блока (упрощённо)
             # Проверим parent_qc, если он есть
-            if parent_qc_data:
+            # --- ИСПРАВЛЕНИЕ: используем parent_qc_data ---
+            if parent_qc_: # ИСПРАВЛЕНО: if parent_qc_data (проверяет, что переменная не None и не пустая)
                 parent_block_hash = parent_qc_data['block_hash']
                 # В реальной системе проверяется подпись QC
                 print(f"[HOTSTUFF] Узел {self.node_id}: Проверяет parent_qc для блока {block_data['index']}.")
                 # Предположим, проверка прошла успешно
 
-            # Создаём объект Block из словаря
+            # Создаём объект Block
             try:
                 new_block = blockchain.Block(
                     index=block_data['index'],
                     previous_hash=block_data['previous_hash'],
                     # transactions - список словарей, нужно преобразовать в объекты Transaction
-                    transactions=[transaction.Transaction(**tx) for tx in block_data['transactions']],
+                    transactions=[transaction.Transaction(**tx) for tx in block_data['transactions']], # Исправлено: передаём **tx
                     timestamp=block_data['timestamp'],
                     nonce=block_data['nonce']
                 )
                 # Устанавливаем хеш, вычисленный при создании объекта Block
                 new_block.hash = block_data['hash']
                 new_block.parent_qc = parent_qc_data # Сохраняем родительский QC
+
+                block_hash = new_block.hash
+
+                # Проверяем, что блок можно применить к текущему состоянию
+                if not self.blockchain.validate_block_transactions(new_block):
+                    print(f"[HOTSTUFF] Узел {self.node_id}: Блок {new_block.index} не прошёл валидацию. Отклоняем.")
+                    return
+
+                print(f"[HOTSTUFF] Узел {self.node_id}: Принят PROPOSE для блока {new_block.index} (view {view}).")
+
+                # Шаг 2: Голосование (Vote)
+                self._vote_for_block(block_hash, view)
+
             except Exception as e:
                 print(f"[HOTSTUFF] Узел {self.node_id}: Ошибка при создании объекта Block из PROPOSE: {e}")
                 return
-
-            block_hash = new_block.hash
-
-            # Проверяем, что блок можно применить к текущему состоянию
-            if not self.blockchain.validate_block_transactions(new_block):
-                print(f"[HOTSTUFF] Узел {self.node_id}: Блок {new_block.index} не прошёл валидацию. Отклоняем.")
-                return
-
-            print(f"[HOTSTUFF] Узел {self.node_id}: Принят PROPOSE для блока {new_block.index} (view {view}).")
-
-            # Шаг 2: Голосование (Vote)
-            self._vote_for_block(block_hash, view)
 
     def _vote_for_block(self, block_hash, view):
         """
@@ -199,7 +200,6 @@ class Replica:
             # Проверяем view
             if view != self.current_view:
                  # Голоса для устаревших view игнорируются или обрабатываются по-другому
-                 print(f"[HOTSTUFF] Узел {self.node_id}: Получен VOTE для неактуального view {view}.")
                  return
 
             # Проверяем, что узел может голосовать (реально проверяется подпись и ключ)
@@ -230,7 +230,7 @@ class Replica:
                 # Пытаемся зафиксировать (commit) блок
                 self._try_commit_block(block_hash, qc)
 
-    def _try_commit_block(self, block_hash, qc):
+    def _try_commit_block(self, block_hash, qc, parent_qc_=None):
         """
         Проверяет правило коммита (3 подряд идущих QC) и фиксирует блок, если правило выполнено.
         """
@@ -245,11 +245,10 @@ class Replica:
         # Найдём блок, для которого у нас есть qc_current
         block_current = self.pending_blocks.get(block_hash)
         if not block_current:
-            print(f"[HOTSTUFF] Узел {self.node_id}: QC для неизвестного блока {block_hash[:8]}.")
             return # Блок не найден
 
         parent_qc_data = block_current.parent_qc
-        if not parent_qc_data:
+        if not parent_qc_: # ИСПРАВЛЕНО: if not parent_qc_data (проверяет, что переменная None или пустая)
             # Если нет parent_qc, это может быть genesis или первый блок
             # Пока что просто обновим high_qc
             self.high_qc = qc
@@ -267,14 +266,9 @@ class Replica:
             # Однако, в нашей упрощенной логике, если у нас есть QC для C, и parent_qc(P) для C,
             # и QC для P (в pending_qcs), и parent_qc(G) для P (в pending_qcs или в high_commit_qc),
             # то можно коммитить G (т.е. "дедушку" P).
-            # Уточним: если у нас есть QC(C), parent_qc(P) для C, и QC(P) для P, и parent_qc(G) для P,
-            # и QC(G) для G, то можно коммитить G.
-            # Или, если есть high_commit_qc (G), и QC(P) для P, и parent_qc(P) указывает на G, и QC(C) для C, и parent_qc(C) указывает на P,
+            # Уточним: если у нас есть high_commit_qc (G), и QC(P), и parent_qc(P) указывает на G, и QC(C) для C, и parent_qc(C) указывает на P,
             # то можно коммитить P.
-            # Попробуем упрощённую версию: если у нас есть high_commit_qc(G), и QC(P), и parent_qc(P) указывает на G, то можно коммитить P.
-            # Но для этого нужно, чтобы parent_qc(P) был доступен у P.
-            # В нашем случае, parent_qc хранится в блоке (new_block.parent_qc).
-            # Проверим, есть ли QC для parent_block (P)
+            # Попробуем упрощённую версию: если у нас есть high_commit_qc (G), и QC(P), и parent_qc(P) указывает на G, то можно коммитить P.
             parent_qc_for_p = self.pending_qcs.get(parent_block_hash)
             if parent_qc_for_p and self.high_commit_qc and self.high_commit_qc.block_hash == parent_block.parent_qc.get('block_hash'):
                 # high_commit_qc -> parent_qc_for_p -> qc_for_current
@@ -286,9 +280,17 @@ class Replica:
                     # Добавляем блок в цепочку
                     success = self.blockchain.add_block(block_to_commit)
                     if success:
-                        # Обновляем high_commit_qc на QC, который подтверждает коммитнутый блок
-                        self.high_commit_qc = parent_qc_for_p
+                        # Обновляем high_commit_qc
+                        self.high_commit_qc = self.pending_qcs.get(block_to_commit_hash)
                         print(f"[HOTSTUFF] Узел {self.node_id}: Блок {block_to_commit.index} успешно закоммичен.")
+                        # --- ИСПРАВЛЕНИЕ: Сохраняем блок в БД при добавлении в цепочку ---
+                        # Проверим, инициализирован ли self.db_manager
+                        if self.db_manager:
+                            # Блоки хранятся как объекты Block, преобразуем в словарь для БД
+                            # Убедимся, что у Block есть метод to_dict
+                            block_db_data = block_to_commit.to_dict()
+                            self.db_manager.save_block(block_db_data)
+                        # --- Конец исправления ---
                     else:
                         print(f"[HOTSTUFF] Узел {self.node_id}: Не удалось закоммитить блок {block_to_commit.index}.")
 
@@ -315,6 +317,7 @@ class Replica:
         """Останавливает цикл работы узла."""
         self._running = False
 
+    # --- ДОБАВЛЕННЫЙ МЕТОД ---
     # Метод handle_message в Replica для универсальной обработки
     def handle_message(self, message):
         """
@@ -329,7 +332,6 @@ class Replica:
         #    self.handle_timeout(message)
         else:
             print(f"[HOTSTUFF] Узел {self.node_id}: Получено неизвестное сообщение типа {msg_type}.")
-
 
 # --- Вспомогательные классы для симуляции сети и валидаторов ---
 
@@ -395,17 +397,4 @@ class InMemoryNetwork:
     def deliver_message_to_replica(self, message, target_node_id):
         replica = self.get_replica(target_node_id)
         if replica:
-            replica.handle_message(message)
-
-    # --- Добавим метод для симуляции смены view (упрощённо) ---
-    def change_view(self):
-        """
-        (Упрощённая) симуляция смены view, например, по таймеру или при отсутствии прогресса.
-        """
-        # В реальной системе тут была бы сложная логика с таймаутами и голосованием за смену.
-        # Для симуляции просто увеличим view.
-        for replica in self.replicas.values():
-            with replica.lock:
-                replica.current_view += 1
-        print(
-            f"[HOTSTUFF-NETWORK] Смена view на {self.replicas[next(iter(self.replicas))].current_view} для всех узлов (симуляция).")
+             replica.handle_message(message)

@@ -1,9 +1,8 @@
 import hashlib
 import time
 from enum import Enum
-# Исправленный импорт utils: используем абсолютный путь
-# from .. import utils # Потенциальная проблема с относительным импортом из participants
-from digital_ruble_simulation.src.core import utils # Абсолютный импорт utils
+# Исправленный импорт utils: используем относительный путь
+from .. import utils # Относительный импорт utils из core
 
 class UserType(Enum):
     PHYSICAL = "physical"
@@ -20,7 +19,7 @@ class User:
         Args:
             user_id (str): Уникальный идентификатор пользователя.
             user_type (UserType): Тип пользователя (физическое или юридическое лицо).
-            initial_balance (float): Начальный баланс безналичного кошелька.
+            initial_balance (int): Начальный баланс безналичного кошелька (целое число).
         """
         self.id = user_id
         self.type = user_type.value  # Сохраняем как строку
@@ -28,10 +27,10 @@ class User:
         self.offline_wallet_expiry = None
         self.offline_wallet_active = False
 
-        # Балансы
-        self.balance_non_cash = initial_balance  # Баланс безналичного кошелька - ИНИЦИАЛИЗАЦИЯ
-        self.balance_digital = 0.0               # Баланс цифрового кошелька
-        self.balance_offline = 0.0               # Баланс офлайн-кошелька
+        # Балансы (теперь всегда целые числа)
+        self.balance_non_cash = int(initial_balance)  # Баланс безналичного кошелька - ИНИЦИАЛИЗАЦИЯ
+        self.balance_digital = 0  # Баланс цифрового кошелька (целое число)
+        self.balance_offline = 0  # Баланс офлайн-кошелька (целое число)
 
         # Статусы кошельков
         self.status_digital_wallet = "ЗАКРЫТ"
@@ -55,6 +54,7 @@ class User:
         if self.status_digital_wallet != "ОТКРЫТ":
             print(f"[ERROR] Цифровой кошелёк пользователя {self.id} не открыт.")
             return False
+        amount = int(amount) # Убедимся, что сумма целая
         if amount <= 0:
             print(f"[ERROR] Сумма обмена должна быть положительной.")
             return False
@@ -86,9 +86,12 @@ class User:
 
     def fill_offline_wallet(self, amount):
         """Пополняет офлайн-кошелёк цифровыми рублями."""
+        # --- ИСПРАВЛЕНИЕ: Проверяем активность офлайн-кошелька ---
         if not self.offline_wallet_active:
             print(f"[ERROR] Офлайн-кошелёк пользователя {self.id} не активен.")
             return False
+        # --- Конец исправления ---
+        amount = int(amount) # Убедимся, что сумма целая
         if amount <= 0:
             print(f"[ERROR] Сумма пополнения должна быть положительной.")
             return False
@@ -107,9 +110,12 @@ class User:
         Создаёт офлайн-транзакцию.
         Возвращает словарь с данными транзакции или None в случае ошибки.
         """
+        # --- ИСПРАВЛЕНИЕ: Проверяем активность офлайн-кошелька ---
         if not self.offline_wallet_active:
             print(f"[ERROR] Офлайн-кошелёк пользователя {self.id} не активен для создания транзакции.")
             return None
+        # --- Конец исправления ---
+        amount = int(amount) # Убедимся, что сумма целая
         if amount <= 0:
             print(f"[ERROR] Сумма транзакции должна быть положительной.")
             return None
@@ -127,7 +133,7 @@ class User:
         }
         # Простая подпись данных (в реальной системе использовалась бы криптография)
         # Используем utils.calculate_hash
-        tx_data['signature'] = utils.calculate_hash(f"{self.id}{recipient_id}{amount}{tx_data['timestamp']}OFFLINE".encode())
+        tx_data['signature'] = utils.calculate_hash(f"{self.id}{recipient_id}{amount}{tx_data['timestamp']}OFFLINE")
 
         self.balance_offline -= amount
         print(f"[INFO] Создана офлайн-транзакция от {self.id} к {recipient_id} на сумму {amount}.")
@@ -138,7 +144,7 @@ class User:
         Создаёт смарт-контракт. Возвращает его идентификатор.
         """
         # contract_details - словарь с описанием условий контракта
-        contract_id = utils.calculate_hash(f"{self.id}{time.time()}{str(contract_details)}".encode())
+        contract_id = utils.calculate_hash(f"{self.id}{time.time()}{str(contract_details)}")
         print(f"[INFO] Создан смарт-контракт {contract_id} пользователем {self.id}.")
         return contract_id
 
@@ -148,11 +154,11 @@ class User:
         return {
             'id': self.id,
             'type': self.type,
-            'balance_non_cash': self.balance_non_cash, # Текущий баланс
+            'balance_non_cash': self.balance_non_cash, # Текущий баланс (целое число)
             'status_digital_wallet': self.status_digital_wallet,
             'status_offline_wallet': self.status_offline_wallet,
-            'balance_digital': self.balance_digital, # Текущий баланс
-            'balance_offline': self.balance_offline, # Текущий баланс
+            'balance_digital': self.balance_digital, # Текущий баланс (целое число)
+            'balance_offline': self.balance_offline, # Текущий баланс (целое число)
             'offline_wallet_activation_time': time.ctime(self.offline_wallet_expiry - (14 * 24 * 60 * 60)) if self.offline_wallet_expiry else None,
             'offline_wallet_deactivation_time': time.ctime(self.offline_wallet_expiry) if self.offline_wallet_expiry else None,
         }

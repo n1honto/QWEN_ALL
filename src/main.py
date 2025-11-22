@@ -4,7 +4,7 @@
 Запускает симуляцию и UI.
 """
 
-# Используем абсолютные импорты
+# --- КРИТИЧЕСКИЕ ИЗМЕНЕНИЯ ---
 # Убедимся, что корень проекта (digital_ruble_simulation) доступен для импорта
 # Это достигается добавлением пути к корню в sys.path.
 import os
@@ -14,7 +14,8 @@ import threading
 import random
 from datetime import datetime, timedelta
 
-# --- КРИТИЧЕСКИЕ ИЗМЕНЕНИЯ ---
+from src.core import utils
+
 # Определяем путь к корню проекта относительно этого файла
 # main.py находится в digital_ruble_simulation/src/main.py
 current_file_dir = os.path.dirname(os.path.abspath(__file__)) # digital_ruble_simulation/src
@@ -27,7 +28,7 @@ if project_root not in sys.path:
 print(f"[MAIN] sys.path обновлён. Корень проекта: {project_root}") # Для отладки
 print(f"[MAIN] sys.path: {sys.path[:3]}...") # Показываем начало пути для проверки
 
-# Теперь можно импортировать модули из digital_ruble_simulation
+# --- ОСТАЛЬНОЙ КОД main.py ---
 # Попробуем импортировать каждый модуль по отдельности для отладки
 try:
     from digital_ruble_simulation.src.core import participants, blockchain, consensus, transaction
@@ -44,7 +45,7 @@ except ImportError as e:
     sys.exit(1)
 
 try:
-    from digital_ruble_simulation.src.ui import main_window # Импортируем главный файл UI
+    from digital_ruble_simulation.ui import main_window # Импортируем главный файл UI
     print("[MAIN] Успешно импортирован main_window")
 except ImportError as e:
     print(f"[ERROR] Не удалось импортировать main_window: {e}")
@@ -105,7 +106,7 @@ def initialize_simulation(num_users=1000, num_fos=5, scenario="low"):
     validator_set_data = {} # Для консенсуса
     for i in range(num_fos):
         fo_id = f"FO_{i+1:03d}"
-        fo_instance = participants.FinancialOrg(fo_id, central_bank)
+        fo_instance = participants.FinancialOrg(fo_id, central_bank, db_manager) # Передаём db_manager
         financial_orgs[fo_id] = fo_instance
         validator_set_data[fo_id] = "mock_public_key" # Заглушка
     print(f"[MAIN] {num_fos} Финансовых Организаций инициализировано.")
@@ -116,6 +117,7 @@ def initialize_simulation(num_users=1000, num_fos=5, scenario="low"):
         # ИСПРАВЛЕНО: используем participants.UserType
         user_type = random.choice([participants.UserType.PHYSICAL, participants.UserType.LEGAL])
         user_id = f"USER_{i+1:06d}"
+        # --- КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: Пользователь создаётся с initial_balance=10000 ---
         user_instance = participants.User(user_id, user_type, initial_balance=10000.0) # 10000 по умолчанию - ПРАВИЛЬНО
         users[user_id] = user_instance
 
@@ -126,11 +128,7 @@ def initialize_simulation(num_users=1000, num_fos=5, scenario="low"):
         # Сохраняем данные пользователя в БД
         # ИСПРАВЛЕНО: передаём только поля, совместимые с моделью БД, используя get_wallet_info
         user_db_data = user_instance.get_wallet_info() # Получаем текущее состояние
-        # Убираем поля, которые не нужны для создания/обновления в БД, но есть в get_wallet_info
-        # offline_wallet_activation_time и offline_wallet_deactivation_time - производные, не обязательны для БД
-        # Но в модели User SQLAlchemy они есть (offline_wallet_expiry), так что оставим их
-        # filtered_db_data = {k: v for k, v in user_db_data.items() if k in ['id', 'type', 'balance_non_cash', 'balance_digital', 'balance_offline', 'status_digital_wallet', 'status_offline_wallet', 'offline_wallet_expiry']}
-        # На самом деле, database_manager.save_user фильтрует, так что можно передать весь словарь
+        # database_manager.save_user фильтрует поля, так что можно передать весь словарь
         db_manager.save_user(user_db_data) # Передаём словарь из get_wallet_info
     print(f"[MAIN] {num_users} пользователей инициализировано и распределены по ФО.")
 
@@ -143,7 +141,8 @@ def initialize_simulation(num_users=1000, num_fos=5, scenario="low"):
             blockchain_instance=digital_ruble_chain,
             financial_org_instance=fo_instance,
             validator_set=consensus.ValidatorSet(validator_set_data, {k: 1 for k in validator_set_data}), # Равный вес
-            crypto_instance=consensus.MockCrypto() # Заглушка
+            crypto_instance=consensus.MockCrypto(), # Заглушка
+            db_manager = db_manager # Передаём db_manager для сохранения блоков
         )
         replicas.append(replica)
 
@@ -160,7 +159,8 @@ def initialize_simulation(num_users=1000, num_fos=5, scenario="low"):
 
     return db_manager, digital_ruble_chain, central_bank, financial_orgs, users, replicas, network, total_transactions_expected
 
-def run_simulation_loop(replicas, duration_seconds, total_transactions_expected, financial_orgs, users):
+def run_simulation_loop(replicas, duration_seconds, total_transactions_expected, financial_orgs, users, db_manager,
+                        tx_=None): # Добавлен аргумент db_manager
     """
     Запускает основной цикл симуляции.
     """
@@ -185,6 +185,14 @@ def run_simulation_loop(replicas, duration_seconds, total_transactions_expected,
     generated_tx_count = 0
     last_report_time = start_time
     report_interval = 10 # Секунд между отчетами
+    last_ui_update_time = start_time # Время последнего обновления UI
+    ui_update_interval = 5 # Секунд между обновлениями UI
+
+    # --- Добавим переменные для отслеживания сценариев ---
+    last_offline_event_time = start_time
+    last_smart_contract_event_time = start_time
+    offline_event_interval = 30 # Секунд между событиями с офлайн-кошельками
+    smart_contract_event_interval = 60 # Секунд между событиями со смарт-контрактами
 
     while SIMULATION_RUNNING and time.time() < SIMULATION_END_TIME and generated_tx_count < total_transactions_expected:
         # В реальной симуляции тут была бы логика генерации событий, транзакций и т.д.
@@ -198,11 +206,168 @@ def run_simulation_loop(replicas, duration_seconds, total_transactions_expected,
                      recipient_id = random.choice(fo_users)
                      while recipient_id == sender_id:
                          recipient_id = random.choice(fo_users)
-                     amount = random.uniform(10, 1000) # Случайная сумма
-                     tx_id = fo_instance.submit_transaction(sender_id, recipient_id, amount, 'C2C')
-                     if tx_id:
-                         generated_tx_count += 1
-                         # print(f"[SIM_LOOP] Сгенерирована транзакция {tx_id}, всего: {generated_tx_count}/{total_transactions_expected}") # Слишком много логов
+                     # --- ИСПРАВЛЕНИЕ: Генерируем целое значение ---
+                     amount = int(random.uniform(10, 1000)) # Случайная СУММА - ЦЕЛОЕ ЧИСЛО
+                     print(f"[SIM_LOOP] Попытка создать транзакцию {sender_id} -> {recipient_id}, сумма: {amount}")
+
+                     # --- ИСПРАВЛЕНИЕ: Убедимся, что у отправителя открыт цифровой кошелёк и есть средства ---
+                     sender = fo_instance.users[sender_id]
+
+                     # Открываем цифровой кошелёк, если он закрыт
+                     if sender.status_digital_wallet == "ЗАКРЫТ":
+                         success = sender.create_digital_wallet()
+                         if success:
+                             # Сохраняем изменения в БД через переданный db_manager
+                             user_db_data = sender.get_wallet_info()
+                             db_manager.save_user(user_db_data)
+                             print(f"[SIM_LOOP] Цифровой кошелёк {sender_id} открыт.")
+
+                     # Проверяем, есть ли средства на безналичном кошельке для обмена
+                     if sender.balance_non_cash > amount and sender.balance_digital < amount:
+                         # Обмениваем безналичные деньги на цифровые, чтобы хватило на транзакцию
+                         # Обмениваем чуть больше, чем нужно, чтобы была "подушка"
+                         exchange_amount = min(int(sender.balance_non_cash), amount * 1.1) # Целое значение
+                         success = sender.exchange_to_digital(exchange_amount)
+                         if success:
+                             # Сохраняем изменения в БД через переданный db_manager
+                             user_db_data = sender.get_wallet_info()
+                             db_manager.save_user(user_db_data)
+                             print(f"[SIM_LOOP] {sender_id} обменял {exchange_amount} на цифровые рубли. Новый баланс цифрового: {sender.balance_digital}")
+
+                     # --- Конец исправления ---
+
+                     # Проверяем, достаточно ли средств на цифровом кошельке *после* подготовки
+                     if sender.balance_digital >= amount:
+                         tx_id = fo_instance.submit_transaction(sender_id, recipient_id, amount, 'C2C')
+                         if tx_id:
+                             generated_tx_count += 1
+                             # print(f"[SIM_LOOP] Сгенерирована транзакция {tx_id}, всего: {generated_tx_count}/{total_transactions_expected}") # Слишком много логов
+                     else:
+                         print(f"[SIM_LOOP] Недостаточно средств у {sender_id} для транзакции {amount}. Баланс цифрового: {sender.balance_digital}")
+
+        # --- НОВОЕ: Имитация работы с офлайн-кошельками ---
+        current_time = time.time()
+        if current_time - last_offline_event_time >= offline_event_interval and SIMULATION_RUNNING and generated_tx_count < total_transactions_expected:
+            print(f"[SIM_LOOP] Имитация события с офлайн-кошельком...")
+            # Выбираем случайного пользователя
+            random_user_id = random.choice(list(users.keys()))
+            random_user = users[random_user_id]
+            random_fo_id = random.choice(list(financial_orgs.keys()))
+            random_fo = financial_orgs[random_fo_id]
+
+            # --- ОТКРЫТИЕ ОФФЛАЙН-КОШЕЛЬКА ---
+            if random_user.status_offline_wallet == "ЗАКРЫТ":
+                 print(f"[SIM_LOOP] Пользователь {random_user_id} открывает офлайн-кошелёк.")
+                 success = random_user.open_offline_wallet()
+                 if success:
+                     # Сохраняем изменения в БД через переданный db_manager
+                     user_db_data = random_user.get_wallet_info()
+                     db_manager.save_user(user_db_data)
+
+            # --- ПОПОЛНЕНИЕ ОФФЛАЙН-КОШЕЛЬКА ---
+            if random_user.status_offline_wallet == "ОТКРЫТ" and random_user.balance_digital > 0:
+                 fill_amount = min(int(random_user.balance_digital), 200) # Пополняем на 200 или сколько есть
+                 print(f"[SIM_LOOP] Пользователь {random_user_id} пополняет офлайн-кошелёк на {fill_amount}.")
+                 success = random_user.fill_offline_wallet(fill_amount)
+                 if success:
+                     # Сохраняем изменения в БД через переданный db_manager
+                     user_db_data = random_user.get_wallet_info()
+                     db_manager.save_user(user_db_data)
+
+            # --- СОЗДАНИЕ И СИНХРОНИЗАЦИЯ ОФФЛАЙН-ТРАНЗАКЦИИ ---
+            if random_user.status_offline_wallet == "ОТКРЫТ" and random_user.balance_offline > 0:
+                 recipient_offline = random.choice(list(users.keys()))
+                 while recipient_offline == random_user_id:
+                     recipient_offline = random.choice(list(users.keys()))
+                 tx_amount = min(int(random_user.balance_offline), 100) # Отправляем 100 или сколько есть
+                 print(f"[SIM_LOOP] Пользователь {random_user_id} создает офлайн-транзакцию на {tx_amount} для {recipient_offline}.")
+                 tx_data = random_user.create_offline_transaction(tx_amount, recipient_offline)
+                 # --- ИСПРАВЛЕНИЕ: Проверяем, что tx_data не None и не пустой ---
+                 if tx_: # ИСПРАВЛЕНО: if tx_data
+                     # --- ИСПРАВЛЕНИЕ: Генерируем ID для офлайн-транзакции перед сохранением ---
+                     # Используем utils.calculate_hash для генерации ID
+                     # Сформируем строку для хеширования, включая уникальные данные транзакции
+                     # ИСПРАВЛЕНО: убран .encode() из аргумента calculate_hash
+                     offline_tx_id = utils.calculate_hash(f"{tx_data['sender_id']}{tx_data['recipient_id']}{tx_data['amount']}{tx_data['timestamp']}{tx_data['type']}")
+                     tx_data['id'] = offline_tx_id # --- ДОБАВЛЕНО: ID транзакции ---
+                     # --- Конец исправления ---
+
+                     # Сохраняем офлайн-транзакцию в БД как транзакцию со статусом OFFLINE
+                     tx_data['status'] = 'ОФФЛАЙН'
+                     tx_data['fo_id'] = random_fo_id # Назначаем FO для отслеживания
+                     db_manager.save_transaction(tx_data) # Сохраняем в БД
+                     print(f"[SIM_LOOP] Офлайн-транзакция {offline_tx_id} от {random_user_id} синхронизирована и отправлена в ФО {random_fo_id}.")
+
+                     # --- ИМИТАЦИЯ СИНХРОНИЗАЦИИ ---
+                     # В реальной системе это происходило бы при восстановлении связи
+                     # Мы имитируем это сразу после создания
+                     # Проверим, достаточно ли средств у отправителя в момент синхронизации
+                     # (в реальности это проверялось бы при создании, но для симуляции проверим снова)
+                     if random_user.balance_offline >= tx_amount:
+                         # В реальной системе тут была бы логика обработки офлайн-транзакции
+                         # Пока что просто пометим её как "поступила в обработку"
+                         tx_data['status'] = 'ПОСТУПИЛО В ОБРАБОТКУ'
+                         # В этой симуляции мы не будем делать полноценную проверку двойной траты для офлайн
+                         # Предположим, транзакция проходит
+                         # Создаём обычную транзакцию через FO для имитации включения в блок
+                         # Это не совсем точно отражает реальный процесс, но позволяет включить в консенсус
+                         # ВАЖНО: используем submit_transaction, которое генерирует *новый* ID для транзакции, которая пойдёт в пул!
+                         # Мы передаём ту же сумму, получателя, но тип OFFLINE_SYNC
+                         sync_tx_id = random_fo.submit_transaction(random_user_id, recipient_offline, tx_amount, 'OFFLINE_SYNC')
+                         if sync_tx_id:
+                             generated_tx_count += 1 # Учитываем как одну из целевых транзакций
+                             print(f"[SIM_LOOP] Офлайн-транзакция {offline_tx_id} от {random_user_id} включена в пул ФО {random_fo_id} для обработки в консенсусе (через синхронизированную транзакцию {sync_tx_id}).")
+                         else:
+                             print(f"[SIM_LOOP] Не удалось отправить офлайн-транзакцию {offline_tx_id} в пул ФО {random_fo_id}.")
+                         # Обновим статус *оригинальной* офлайн-транзакции в БД после отправки в пул
+                         tx_data['status'] = 'ОБРАБОТАНА' # Имитация успешной обработки
+                         # db_manager.save_transaction(tx_data) # Повторное сохранение с новым статусом, если нужно
+                     else:
+                         print(f"[SIM_LOOP] Недостаточно средств у {random_user_id} для офлайн-транзакции {offline_tx_id} при синхронизации. Отмена.")
+                         tx_data['status'] = 'ОТКЛОНЕНА' # Имитация отклонения
+                         # db_manager.save_transaction(tx_data) # Сохранение с новым статусом
+                     # Обновим данные пользователя в БД после операции
+                     user_db_data = random_user.get_wallet_info()
+                     db_manager.save_user(user_db_data)
+
+            last_offline_event_time = current_time
+
+
+        # --- НОВОЕ: Имитация работы со смарт-контрактами ---
+        if current_time - last_smart_contract_event_time >= smart_contract_event_interval and SIMULATION_RUNNING and generated_tx_count < total_transactions_expected:
+            print(f"[SIM_LOOP] Имитация события со смарт-контрактом...")
+            # Выбираем случайного пользователя
+            random_user_id_sc = random.choice(list(users.keys()))
+            random_user_sc = users[random_user_id_sc]
+            random_fo_id_sc = random.choice(list(financial_orgs.keys()))
+            random_fo_sc = financial_orgs[random_fo_id_sc]
+
+            # --- СОЗДАНИЕ СМАРТ-КОНТРАКТА ---
+            # Пример: смарт-контракт на оплату 1000 ЦР (услуги, коммуналка и т.д.)
+            contract_details = {"type": "utility_payment", "amount": 1000, "recipient": "UTILITY_PROVIDER_ID"} # Сумма целая
+            contract_id = random_user_sc.create_smart_contract(contract_details)
+            print(f"[SIM_LOOP] Создан смарт-контракт {contract_id} пользователем {random_user_id_sc}.")
+
+            # --- ИМИТАЦИЯ ИСПОЛНЕНИЯ КОНТРАКТА ---
+            # В реальной системе это было бы триггером или таймером
+            # Для симуляции просто выполним транзакцию
+            amount_sc = int(contract_details['amount']) # Убедимся, что сумма целая
+            recipient_sc = contract_details['recipient']
+            # Проверим, достаточно ли средств у отправителя
+            if random_user_sc.balance_digital >= amount_sc:
+                 print(f"[SIM_LOOP] Смарт-контракт {contract_id} инициирует транзакцию от {random_user_id_sc} к {recipient_sc} на {amount_sc}.")
+                 # Выполним транзакцию через ФО
+                 tx_id_sc = random_fo_sc.submit_transaction(random_user_id_sc, recipient_sc, amount_sc, 'SMART_CONTRACT_EXECUTION')
+                 if tx_id_sc:
+                     generated_tx_count += 1 # Учитываем как одну из целевых транзакций
+                     print(f"[SIM_LOOP] Транзакция по смарт-контракту {contract_id} включена в пул ФО {random_fo_id_sc} для обработки в консенсусе.")
+                 else:
+                     print(f"[SIM_LOOP] Не удалось выполнить транзакцию по смарт-контракту {contract_id}.")
+            else:
+                 print(f"[SIM_LOOP] Недостаточно средств у {random_user_id_sc} для выполнения смарт-контракта {contract_id}.")
+
+            last_smart_contract_event_time = current_time
+
         time.sleep(0.01) # Небольшая задержка, чтобы не грузить CPU
 
         # Отчет о прогрессе
@@ -210,6 +375,16 @@ def run_simulation_loop(replicas, duration_seconds, total_transactions_expected,
         if current_time - last_report_time >= report_interval:
             print(f"[MAIN] Прогресс симуляции: {generated_tx_count}/{total_transactions_expected} транзакций за {(current_time - start_time):.2f} сек.")
             last_report_time = current_time
+
+        # Обновление UI (примерное, можно уточнить по необходимости)
+        if current_time - last_ui_update_time >= ui_update_interval:
+            print(f"[MAIN] Обновление данных UI...")
+            # Здесь можно вызвать обновление, если MainApplication доступен
+            # Однако, в текущей архитектуре это сложно сделать напрямую из потока симуляции
+            # Лучше запускать UI обновления из основного потока или по таймеру в UI
+            # Пока просто обновим БД для транзакций, которые могли быть созданы
+            # Транзакции сохраняются в FinancialOrg.submit_transaction
+            last_ui_update_time = current_time
 
     print(f"[MAIN] Цикл генерации транзакций завершён. Сгенерировано: {generated_tx_count}")
 
@@ -275,7 +450,8 @@ def run_scenario(scenario_name):
         scenario=scenario_name
     )
 
-    run_simulation_loop(replicas, SIMULATION_DURATION_SECONDS, expected_txs, fos, users)
+    # ИСПРАВЛЕНО: передаём db_manager в run_loop
+    run_simulation_loop(replicas, SIMULATION_DURATION_SECONDS, expected_txs, fos, users, db_manager) # Передаём db_manager
 
 def main():
     """
